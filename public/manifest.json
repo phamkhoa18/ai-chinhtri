@@ -1,0 +1,20 @@
+{
+  "name": "SaoMai AI",
+  "short_name": "SaoMai",
+  "description": "Hệ thống AI bảo vệ nền tảng tư tưởng — Nhận diện và phản biện thông tin xuyên tạc",
+  "start_url": "/chat",
+  "display": "standalone",
+  "background_color": "#f5f5f4",
+  "theme_color": "#DA251D",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/saomai-logo.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg",
+      "purpose": "any maskable"
+    }
+  ],
+  "lang": "vi",
+  "categories": ["productivity", "utilities"]
+}

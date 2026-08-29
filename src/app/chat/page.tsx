@@ -186,9 +186,16 @@ export default function ChatPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: input }),
       });
+
+      // Check content-type to avoid parsing HTML as JSON
+      const contentType = res.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        throw new Error("Server không phản hồi — vui lòng thử lại sau.");
+      }
+
       if (!res.ok) {
         const error = await res.json();
-        throw new Error(error.error);
+        throw new Error(error.error || "Lỗi phân tích");
       }
       const result: AnalysisResult = await res.json();
       setAnalysisPhase("");
@@ -230,7 +237,9 @@ export default function ChatPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: chatMessages }),
       });
-      if (!res.ok) throw new Error("Chat request failed");
+      if (!res.ok || !res.headers.get("content-type")?.includes("text/event-stream")) {
+        throw new Error("Server không phản hồi — vui lòng thử lại sau.");
+      }
 
       const reader = res.body?.getReader();
       const decoder = new TextDecoder();

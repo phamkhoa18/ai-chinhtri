@@ -1,22 +1,81 @@
-import Database from "better-sqlite3";
 import path from "path";
+import fs from "fs";
 import { getEmbedding, getEmbeddings } from "./fpt-ai";
 
 const DB_PATH = path.join(process.cwd(), "data", "knowledge.db");
 
+// ─── Safe SQLite loading ───
+// better-sqlite3 is a native C++ addon. If it's not compiled for the
+// current platform (e.g. macOS binary on Linux server), it will segfault
+// and crash the entire Node.js process. We test the module on first load
+// and disable all DB operations if it fails.
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let DatabaseConstructor: any = null;
+let sqliteAvailable = true;
+
+function initSqlite() {
+  if (DatabaseConstructor !== null) return true;
+  if (!sqliteAvailable) return false;
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = require("better-sqlite3");
+    DatabaseConstructor = mod.default || mod;
+
+    // Smoke test: try opening and closing a database
+    const dir = path.dirname(DB_PATH);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    const testDb = new (DatabaseConstructor as any)(DB_PATH);
+    testDb.pragma("journal_mode = WAL");
+    testDb.exec(`
+      CREATE TABLE IF NOT EXISTS documents (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        chunk_count INTEGER DEFAULT 0,
+        file_type TEXT,
+        file_size INTEGER DEFAULT 0
+      );
+
+      CREATE TABLE IF NOT EXISTS chunks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        document_id TEXT NOT NULL,
+        content TEXT NOT NULL,
+        embedding BLOB NOT NULL,
+        chunk_index INTEGER NOT NULL,
+        FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_chunks_doc ON chunks(document_id);
+    `);
+    testDb.close();
+    console.log("[VectorStore] SQLite initialized successfully");
+    return true;
+  } catch (error) {
+    console.error("[VectorStore] SQLite NOT available:", (error as Error).message);
+    console.warn("[VectorStore] All database operations will be skipped. RAG/Knowledge Base disabled.");
+    sqliteAvailable = false;
+    DatabaseConstructor = null;
+    return false;
+  }
+}
+
 function getDb() {
-  const fs = require("fs");
+  if (!initSqlite() || !DatabaseConstructor) {
+    throw new Error("SQLite not available");
+  }
+
   const dir = path.dirname(DB_PATH);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
 
-  const db = new Database(DB_PATH);
-
-  // Enable WAL mode for better performance
+  const db = new (DatabaseConstructor as any)(DB_PATH);
   db.pragma("journal_mode = WAL");
 
-  // Create tables if not exist
   db.exec(`
     CREATE TABLE IF NOT EXISTS documents (
       id TEXT PRIMARY KEY,
@@ -94,6 +153,10 @@ export async function addDocument(
   fileType?: string,
   fileSize?: number
 ): Promise<void> {
+  if (!sqliteAvailable) {
+    throw new Error("Knowledge Base không khả dụng — SQLite chưa được cài đúng trên server.");
+  }
+
   const db = getDb();
 
   // Get embeddings for all chunks
@@ -124,6 +187,8 @@ export async function search(
   query: string,
   topK: number = 5
 ): Promise<SearchResult[]> {
+  if (!sqliteAvailable) return [];
+
   const db = getDb();
   const queryEmbedding = await getEmbedding(query);
 
@@ -159,15 +224,25 @@ export async function search(
 }
 
 export function listDocuments(): DocumentInfo[] {
-  const db = getDb();
-  const docs = db
-    .prepare(`SELECT * FROM documents ORDER BY created_at DESC`)
-    .all() as DocumentInfo[];
-  db.close();
-  return docs;
+  if (!sqliteAvailable) return [];
+
+  try {
+    const db = getDb();
+    const docs = db
+      .prepare(`SELECT * FROM documents ORDER BY created_at DESC`)
+      .all() as DocumentInfo[];
+    db.close();
+    return docs;
+  } catch {
+    return [];
+  }
 }
 
 export function deleteDocument(docId: string): void {
+  if (!sqliteAvailable) {
+    throw new Error("Knowledge Base không khả dụng — SQLite chưa được cài đúng trên server.");
+  }
+
   const db = getDb();
   db.prepare(`DELETE FROM chunks WHERE document_id = ?`).run(docId);
   db.prepare(`DELETE FROM documents WHERE id = ?`).run(docId);
@@ -175,10 +250,16 @@ export function deleteDocument(docId: string): void {
 }
 
 export function getDocument(docId: string): DocumentInfo | null {
-  const db = getDb();
-  const doc = db
-    .prepare(`SELECT * FROM documents WHERE id = ?`)
-    .get(docId) as DocumentInfo | undefined;
-  db.close();
-  return doc || null;
+  if (!sqliteAvailable) return null;
+
+  try {
+    const db = getDb();
+    const doc = db
+      .prepare(`SELECT * FROM documents WHERE id = ?`)
+      .get(docId) as DocumentInfo | undefined;
+    db.close();
+    return doc || null;
+  } catch {
+    return null;
+  }
 }

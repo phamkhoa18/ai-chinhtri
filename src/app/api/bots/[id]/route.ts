@@ -20,6 +20,12 @@ export async function GET(
       theme_color: bot.theme_color,
       position: bot.position,
       avatar_url: bot.avatar_url,
+    }, {
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+      },
     });
   } catch (error) {
     console.error("Get bot error:", error);
@@ -60,4 +66,16 @@ export async function PUT(
       { status: 500 }
     );
   }
+}
+
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, PUT, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Max-Age": "86400",
+    },
+  });
 }

@@ -8,9 +8,10 @@ export function chunkText(
 
   const chunks: string[] = [];
   let start = 0;
+  const maxChunks = 2000; // Safety cap to prevent runaway loops
 
-  while (start < cleaned.length) {
-    let end = start + chunkSize;
+  while (start < cleaned.length && chunks.length < maxChunks) {
+    let end = Math.min(start + chunkSize, cleaned.length);
 
     if (end < cleaned.length) {
       // Try to break at sentence boundaries
@@ -22,11 +23,11 @@ export function chunkText(
         searchEnd.lastIndexOf("? ")
       );
 
-      if (lastPeriod > chunkSize * 0.5) {
+      // Only use sentence boundary if it's far enough into the chunk
+      // to ensure we make meaningful forward progress
+      if (lastPeriod > Math.max(chunkSize * 0.3, overlap + 1)) {
         end = start + lastPeriod + 1;
       }
-    } else {
-      end = cleaned.length;
     }
 
     const chunk = cleaned.substring(start, end).trim();
@@ -34,8 +35,13 @@ export function chunkText(
       chunks.push(chunk);
     }
 
-    start = end - overlap;
-    if (start >= cleaned.length) break;
+    // CRITICAL: ensure start always moves forward by at least (end - overlap) or 1
+    const nextStart = end - overlap;
+    start = Math.max(nextStart, start + 1);
+  }
+
+  if (chunks.length >= maxChunks) {
+    console.warn(`[Chunker] Hit max chunk limit (${maxChunks}), text may be truncated`);
   }
 
   return chunks;

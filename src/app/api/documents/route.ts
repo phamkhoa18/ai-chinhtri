@@ -5,7 +5,7 @@ import { addDocument, listDocuments, deleteDocument } from "@/lib/vector-store";
 
 export async function GET() {
   try {
-    const docs = listDocuments();
+    const docs = await listDocuments();
     return NextResponse.json({ documents: docs });
   } catch (error) {
     console.error("List documents error:", error);
@@ -86,7 +86,7 @@ export async function DELETE(request: NextRequest) {
         { status: 400 }
       );
     }
-    deleteDocument(id);
+    await deleteDocument(id);
     return NextResponse.json({ message: "Đã xóa tài liệu" });
   } catch (error) {
     console.error("Delete error:", error);

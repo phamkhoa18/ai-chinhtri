@@ -3,6 +3,8 @@ import OpenAI from "openai";
 const client = new OpenAI({
   apiKey: process.env.FPT_API_KEY!,
   baseURL: process.env.FPT_API_BASE_URL || "https://mkp-api.fptcloud.com/v1",
+  timeout: 60_000, // 60s timeout — tránh treo vô thời hạn nếu FPT API chậm
+  maxRetries: 2, // Tự động retry 2 lần nếu gặp lỗi tạm thời (503, network error)
 });
 
 const CHAT_MODEL = process.env.FPT_CHAT_MODEL || "Qwen3.6-27B";

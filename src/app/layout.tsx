@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Be_Vietnam_Pro } from "next/font/google";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { Sidebar } from "@/components/Sidebar";
+import { LayoutInner } from "@/components/LayoutInner";
 import "./globals.css";
 
 const beVietnam = Be_Vietnam_Pro({
@@ -89,19 +88,8 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="vi" className={`${beVietnam.variable} antialiased`}>
-      <body className="flex flex-col md:flex-row h-dvh overflow-hidden bg-stone-100">
-        <TooltipProvider>
-          {/* Main content - Order 1 on mobile, 2 on desktop */}
-          <div className="flex-1 min-w-0 p-2 md:p-2 md:pl-0 order-1 md:order-2 h-full overflow-hidden">
-            <main className="h-full w-full bg-white rounded-2xl shadow-sm border border-stone-200/80 overflow-hidden relative z-10">
-              {children}
-            </main>
-          </div>
-          {/* Sidebar wrapper - Order 2 on mobile, 1 on desktop */}
-          <div className="shrink-0 p-2 pt-0 md:p-2 md:pr-0 order-2 md:order-1 z-20 pb-safe">
-            <Sidebar />
-          </div>
-        </TooltipProvider>
+      <body className="h-dvh overflow-hidden bg-stone-100">
+        <LayoutInner>{children}</LayoutInner>
       </body>
     </html>
   );

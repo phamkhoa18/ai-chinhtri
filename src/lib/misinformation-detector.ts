@@ -1,7 +1,41 @@
-import { analysisCompletion, chatCompletion, extractContent } from "./fpt-ai";
+import { analysisCompletion, chatCompletion, chatCompletionStream, extractContent } from "./fpt-ai";
 import { search as vectorSearch } from "./vector-store";
-import { searchWeb, fetchPageContent } from "./web-search";
+import { searchWeb } from "./web-search";
 import type OpenAI from "openai";
+
+// ─── Progress callback system ───
+export type AnalysisStep = "detecting" | "searching" | "rebutting";
+
+export interface ProgressEvent {
+  type: "step" | "claims" | "sources" | "result" | "error" | "rebuttal_chunk";
+  step?: AnalysisStep;
+  label?: string;
+  progress?: number;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  data?: any;
+}
+
+export type ProgressCallback = (event: ProgressEvent) => void;
+
+/**
+ * Run an async function with a timeout. Returns fallback value if timeout.
+ */
+async function withTimeout<T>(
+  fn: () => Promise<T>,
+  timeoutMs: number,
+  fallback: T,
+  label: string
+): Promise<T> {
+  return Promise.race([
+    fn(),
+    new Promise<T>((resolve) =>
+      setTimeout(() => {
+        console.warn(`[Timeout] ${label} exceeded ${timeoutMs}ms, using fallback`);
+        resolve(fallback);
+      }, timeoutMs)
+    ),
+  ]);
+}
 
 export interface DetectedClaim {
   claim: string;
@@ -97,6 +131,59 @@ function detectHostileSignals(text: string): {
   );
 
   return { detectedAuthors, detectedMarkers, hostileScore };
+}
+
+// ─── Question / chat patterns ───
+const QUESTION_PATTERNS = [
+  /^.{0,10}(là gì|nghĩa là|có nghĩa)/i,
+  /^.{0,10}(tại sao|vì sao|do đâu|nguyên nhân)/i,
+  /^.{0,10}(ai là|ai đã|ai sẽ)/i,
+  /^.{0,10}(làm sao|bằng cách nào|như thế nào|thế nào)/i,
+  /^.{0,10}(có phải|đúng không|phải không)/i,
+  /^.{0,20}(giải thích|cho .* biết|kể .* nghe)/i,
+  /\?$/,
+];
+
+/**
+ * Decide if user input should trigger full analysis pipeline or just chat.
+ *
+ * Returns true (= run analyze pipeline) when:
+ * - Text is long (>150 chars) AND has hostile language markers
+ * - Text is very long (>300 chars) and looks like a pasted article
+ * - Text has multiple sentences and hostile signals
+ *
+ * Returns false (= just chat) when:
+ * - Short text / questions
+ * - Follow-up in conversation
+ */
+export function shouldAnalyze(text: string, hasHistory: boolean): boolean {
+  const trimmed = text.trim();
+  const len = trimmed.length;
+
+  // Very short → always chat
+  if (len < 80) return false;
+
+  // Question patterns → always chat
+  if (QUESTION_PATTERNS.some((p) => p.test(trimmed))) return false;
+
+  // Check hostile signals
+  const signals = detectHostileSignals(trimmed);
+
+  // Has hostile markers + reasonably long → analyze
+  if (signals.hostileScore >= 2 && len > 120) return true;
+
+  // Very long text (pasted article) even without clear hostile markers → analyze
+  // Must have at least 2 sentences to look like an article
+  const sentenceCount = (trimmed.match(/[.!?]\s/g) || []).length + 1;
+  if (len > 300 && sentenceCount >= 3) return true;
+
+  // Long text with some hostile signals → analyze
+  if (len > 200 && signals.hostileScore >= 1) return true;
+
+  // Has ongoing conversation → likely follow-up chat, not new analysis
+  if (hasHistory && len < 300) return false;
+
+  return false;
 }
 
 /**
@@ -206,12 +293,12 @@ Trả về JSON array, mỗi phần tử BẮT BUỘC có các field:
 Nếu đoạn text hoàn toàn trong sạch, không có DẤU HIỆU nào xấu độc, trả về [].
 CHỈ trả về JSON array, KHÔNG có text nào khác trước hoặc sau JSON.`;
 
-  const response = (await analysisCompletion(
+  const response = (await chatCompletion(
     [
       { role: "system", content: systemPrompt },
       { role: "user", content: text },
     ],
-    { temperature: 0.3, maxTokens: 16384 }
+    { temperature: 0.3, maxTokens: 8192 }
   )) as OpenAI.ChatCompletion;
 
   const content = extractContent(response) || "[]";
@@ -372,23 +459,66 @@ async function findEvidence(
   claims: DetectedClaim[],
   originalText: string
 ): Promise<{ sources: SourceEvidence[]; ragContext: string[] }> {
-  // Generate search queries (AI + fallback)
-  let queries = await generateSearchQueries(claims);
-  if (queries.length === 0) {
-    console.warn("[Evidence] AI search query generation failed, using fallback");
-    queries = generateFallbackQueries(claims, originalText);
+  // ─── PARALLEL: Run RAG search + AI query generation + fallback web search simultaneously ───
+  const fallbackQueries = generateFallbackQueries(claims, originalText);
+
+  const [aiQueries, ragContext, fallbackWebResults] = await Promise.all([
+    // AI query generation (timeout 15s)
+    withTimeout(
+      () => generateSearchQueries(claims),
+      15_000,
+      [] as string[],
+      "AI search query generation"
+    ),
+    // RAG search (timeout 10s)
+    withTimeout(
+      async () => {
+        try {
+          const ragResults = await vectorSearch(originalText, 3);
+          return ragResults
+            .filter((r) => r.score > 0.3)
+            .map((r) => `[${r.document_name}]: ${r.content}`);
+        } catch {
+          return [];
+        }
+      },
+      10_000,
+      [] as string[],
+      "RAG search"
+    ),
+    // Start searching with fallback queries immediately (don't wait for AI)
+    withTimeout(
+      async () => {
+        const promises = fallbackQueries.slice(0, 3).map((q) => searchWeb(q));
+        const results = await Promise.all(promises);
+        return results.flat();
+      },
+      20_000,
+      [] as { title: string; snippet: string; url: string }[],
+      "Fallback web search"
+    ),
+  ]);
+
+  // If AI generated queries, search with those too
+  let aiWebResults: { title: string; snippet: string; url: string }[] = [];
+  if (aiQueries.length > 0) {
+    console.log(`[Evidence] AI generated ${aiQueries.length} queries, searching...`);
+    aiWebResults = await withTimeout(
+      async () => {
+        const promises = aiQueries.slice(0, 3).map((q) => searchWeb(q));
+        const results = await Promise.all(promises);
+        return results.flat();
+      },
+      20_000,
+      [],
+      "AI web search"
+    );
   }
 
-  console.log(`[Evidence] Searching with ${queries.length} queries`);
-
-  // Search web in parallel (use up to 5 queries)
-  const webResultsPromises = queries.slice(0, 5).map((q) => searchWeb(q));
-  const webResultsArrays = await Promise.all(webResultsPromises);
-  const allWebResults = webResultsArrays.flat();
-
+  // Merge and deduplicate results (AI results first = higher priority)
+  const allWebResults = [...aiWebResults, ...fallbackWebResults];
   console.log(`[Evidence] Total raw results: ${allWebResults.length}`);
 
-  // Deduplicate by URL
   const seen = new Set<string>();
   const uniqueResults = allWebResults.filter((r) => {
     if (seen.has(r.url)) return false;
@@ -396,50 +526,33 @@ async function findEvidence(
     return true;
   });
 
-  // Fetch page content for top results
-  const topResults = uniqueResults.slice(0, 5);
-  const pageContents = await Promise.all(
-    topResults.map(async (r) => {
-      const content = await fetchPageContent(r.url);
-      return { ...r, fullContent: content };
-    })
-  );
-
-  // Convert to SourceEvidence
-  const sources: SourceEvidence[] = pageContents
-    .filter((r) => r.snippet || r.fullContent)
+  // Skip page fetch — DuckDuckGo snippets are sufficient for citation
+  const sources: SourceEvidence[] = uniqueResults
+    .slice(0, 5)
+    .filter((r) => r.snippet)
     .map((r) => ({
       title: r.title,
       url: r.url,
-      snippet: r.snippet || r.fullContent.substring(0, 300),
+      snippet: r.snippet,
       relevance: "",
     }));
 
   console.log(`[Evidence] Final sources: ${sources.length}`);
   sources.forEach((s) => console.log(`  - ${s.title}: ${s.url}`));
 
-  // Search knowledge base (RAG)
-  let ragContext: string[] = [];
-  try {
-    const ragResults = await vectorSearch(originalText, 3);
-    ragContext = ragResults
-      .filter((r) => r.score > 0.3)
-      .map((r) => `[${r.document_name}]: ${r.content}`);
-  } catch {
-    // Knowledge base might be empty
-  }
-
   return { sources, ragContext };
 }
 
 /**
- * Step 3: Generate rebuttal article
+ * Step 3: Generate rebuttal article — STREAMING version
+ * Yields content chunks via ProgressCallback for real-time display.
  */
-async function generateRebuttal(
+async function generateRebuttalStreaming(
   originalText: string,
   claims: DetectedClaim[],
   sources: SourceEvidence[],
-  ragContext: string[]
+  ragContext: string[],
+  emit: ProgressCallback
 ): Promise<string> {
   // Detect hostile signals for rebuttal context
   const signals = detectHostileSignals(originalText);
@@ -481,7 +594,8 @@ QUY TẮC TRÍCH DẪN NGUỒN (CỰC KỲ QUAN TRỌNG):
       sources.map((s) => `- ${s.title}: ${s.snippet} (${s.url})`).join("\n");
   }
 
-  const response = (await chatCompletion(
+  // Stream the rebuttal token by token
+  const stream = await chatCompletionStream(
     [
       { role: "system", content: systemPrompt },
       {
@@ -490,33 +604,167 @@ QUY TẮC TRÍCH DẪN NGUỒN (CỰC KỲ QUAN TRỌNG):
       },
     ],
     { temperature: 0.5, maxTokens: 8192 }
-  )) as OpenAI.ChatCompletion;
+  );
 
-  return extractContent(response) || "Không thể tạo bài phản biện.";
+  let fullRebuttal = "";
+  for await (const chunk of stream) {
+    const content = chunk.choices[0]?.delta?.content || "";
+    if (content) {
+      fullRebuttal += content;
+      emit({ type: "rebuttal_chunk", data: content });
+    }
+  }
+
+  return fullRebuttal || "Không thể tạo bài phản biện.";
 }
 
 /**
- * Full analysis pipeline
+ * Full analysis pipeline (backward-compatible, no progress)
  */
 export async function analyzeText(text: string): Promise<AnalysisResult> {
-  // Step 1: Detect claims
-  const claims = await detectMisinformation(text);
+  return analyzeTextWithProgress(text);
+}
+
+/**
+ * Full analysis pipeline WITH real-time progress callbacks.
+ * 
+ * OPTIMIZED: Step 1 (detect) + Step 2 (evidence search) run IN PARALLEL.
+ * Step 3 (rebuttal) streams token-by-token for instant perceived response.
+ */
+export async function analyzeTextWithProgress(
+  text: string,
+  onProgress?: ProgressCallback
+): Promise<AnalysisResult> {
+  const emit = onProgress || (() => {});
+
+  // ═══ Step 1 + Step 2: PARALLEL ═══
+  // Start detect AND evidence search at the same time!
+  emit({ type: "step", step: "detecting", label: "Nhận diện luận điểm xuyên tạc...", progress: 10 });
+
+  // Prepare fallback queries from text right away (no AI needed)
+  const placeholderClaims: DetectedClaim[] = [];
+  const fallbackQueries = generateFallbackQueries(placeholderClaims, text);
+
+  // Run in parallel: detection + RAG + web search
+  const [claims, ragContext, fallbackWebResults] = await Promise.all([
+    // Step 1: Detect claims
+    withTimeout(
+      () => detectMisinformation(text),
+      45_000,
+      [] as DetectedClaim[],
+      "Detect misinformation"
+    ).catch((error) => {
+      console.error("[Pipeline] Step 1 (detect) failed:", (error as Error).message);
+      emit({ type: "error", data: { step: "detecting", message: "Nhận diện thất bại, bỏ qua bước này." } });
+      return [] as DetectedClaim[];
+    }),
+
+    // Step 2a: RAG search (start immediately, don't wait for claims)
+    withTimeout(
+      async () => {
+        try {
+          const ragResults = await vectorSearch(text, 3);
+          return ragResults
+            .filter((r) => r.score > 0.3)
+            .map((r) => `[${r.document_name}]: ${r.content}`);
+        } catch {
+          return [];
+        }
+      },
+      10_000,
+      [] as string[],
+      "RAG search"
+    ),
+
+    // Step 2b: Web search with fallback queries (start immediately)
+    withTimeout(
+      async () => {
+        const promises = fallbackQueries.slice(0, 3).map((q) => searchWeb(q));
+        const results = await Promise.all(promises);
+        return results.flat();
+      },
+      20_000,
+      [] as { title: string; snippet: string; url: string }[],
+      "Fallback web search"
+    ),
+  ]);
+
+  // Send claims
+  emit({ type: "claims", data: claims, progress: 30 });
 
   if (claims.length === 0) {
-    return {
+    const result: AnalysisResult = {
       claims: [],
       sources: [],
-      rebuttal:
-        "Không phát hiện luận điểm xuyên tạc rõ ràng trong đoạn text này.",
+      rebuttal: "Không phát hiện luận điểm xuyên tạc rõ ràng trong đoạn text này.",
       ragContext: [],
     };
+    emit({ type: "result", data: result, progress: 100 });
+    return result;
   }
 
-  // Step 2: Find evidence
-  const { sources, ragContext } = await findEvidence(claims, text);
+  // ═══ Step 2c: AI-generated queries (only if claims available) ═══
+  emit({ type: "step", step: "searching", label: "Tìm nguồn chính thống...", progress: 35 });
 
-  // Step 3: Generate rebuttal
-  const rebuttal = await generateRebuttal(text, claims, sources, ragContext);
+  let aiWebResults: { title: string; snippet: string; url: string }[] = [];
+  try {
+    const aiQueries = await withTimeout(
+      () => generateSearchQueries(claims),
+      15_000,
+      [] as string[],
+      "AI search query generation"
+    );
+    if (aiQueries.length > 0) {
+      aiWebResults = await withTimeout(
+        async () => {
+          const promises = aiQueries.slice(0, 3).map((q) => searchWeb(q));
+          const results = await Promise.all(promises);
+          return results.flat();
+        },
+        20_000,
+        [],
+        "AI web search"
+      );
+    }
+  } catch {
+    // AI queries failed — that's ok, we have fallback results
+  }
 
-  return { claims, sources, rebuttal, ragContext };
+  // Merge + deduplicate (AI results first)
+  const allWebResults = [...aiWebResults, ...fallbackWebResults];
+  const seen = new Set<string>();
+  const uniqueResults = allWebResults.filter((r) => {
+    if (seen.has(r.url)) return false;
+    seen.add(r.url);
+    return true;
+  });
+
+  const sources: SourceEvidence[] = uniqueResults
+    .slice(0, 5)
+    .filter((r) => r.snippet)
+    .map((r) => ({
+      title: r.title,
+      url: r.url,
+      snippet: r.snippet,
+      relevance: "",
+    }));
+
+  // Send sources
+  emit({ type: "sources", data: { sources, ragContext }, progress: 60 });
+
+  // ═══ Step 3: Generate rebuttal — STREAMING ═══
+  emit({ type: "step", step: "rebutting", label: "Viết bài phản biện...", progress: 65 });
+
+  let rebuttal = "";
+  try {
+    rebuttal = await generateRebuttalStreaming(text, claims, sources, ragContext, emit);
+  } catch (error) {
+    console.error("[Pipeline] Step 3 (rebuttal) failed:", (error as Error).message);
+    rebuttal = "Lỗi khi tạo bài phản biện: " + (error as Error).message;
+    emit({ type: "error", data: { step: "rebutting", message: "Viết phản biện thất bại." } });
+  }
+
+  const result: AnalysisResult = { claims, sources, rebuttal, ragContext };
+  emit({ type: "result", data: result, progress: 100 });
+  return result;
 }

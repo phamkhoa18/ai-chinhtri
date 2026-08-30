@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Test Widget SaoMai AI</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      color: #fff;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 60px 20px;
+    }
+    h1 { font-size: 2.5em; margin-bottom: 10px; }
+    p { font-size: 1.1em; opacity: 0.9; line-height: 1.6; margin-bottom: 20px; }
+    .card {
+      background: rgba(255,255,255,0.15);
+      backdrop-filter: blur(10px);
+      border-radius: 16px;
+      padding: 30px;
+      margin-top: 30px;
+      border: 1px solid rgba(255,255,255,0.2);
+    }
+    .card h2 { font-size: 1.3em; margin-bottom: 10px; }
+    .card p { font-size: 0.95em; opacity: 0.8; }
+    .badge {
+      display: inline-block;
+      background: rgba(255,255,255,0.2);
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 0.85em;
+      margin-bottom: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <span class="badge">🧪 Test Page</span>
+    <h1>Website Mẫu</h1>
+    <p>Đây là trang web giả lập để test SaoMai AI Widget. Nhìn góc phải dưới — bạn sẽ thấy nút chat 💬</p>
+    
+    <div class="card">
+      <h2>📌 Cách hoạt động</h2>
+      <p>Widget được nhúng bằng 1 dòng script. Khi load, nó tự động tạo bubble chat ở góc phải dưới. Click vào bubble → mở iframe chat.</p>
+    </div>
+
+    <div class="card">
+      <h2>🔧 Embed Code</h2>
+      <p><code>&lt;script src="http://localhost:3000/widget/embed.js" data-bot-id="6872f9c8-674b-41df-98bb-fa361a677fb9"&gt;&lt;/script&gt;</code></p>
+    </div>
+  </div>
+
+  <!-- SaoMai AI Widget -->
+  <script src="http://localhost:3000/widget/embed.js" data-bot-id="6872f9c8-674b-41df-98bb-fa361a677fb9"></script>
+</body>
+</html>

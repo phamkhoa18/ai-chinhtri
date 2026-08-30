@@ -7,11 +7,13 @@ import {
   MessageSquareText,
   BookOpen,
   Star,
+  Code2,
 } from "lucide-react";
 
 const navItems = [
   { href: "/chat", label: "Phân tích", icon: MessageSquareText },
   { href: "/knowledge", label: "Tri thức", icon: BookOpen },
+  { href: "/bots", label: "Widget", icon: Code2 },
 ];
 
 export function Sidebar() {

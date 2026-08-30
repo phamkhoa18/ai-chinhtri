@@ -1,0 +1,63 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getBot, updateBot } from "@/lib/bot-store";
+
+export async function GET(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const bot = await getBot(id);
+    if (!bot) {
+      return NextResponse.json({ error: "Bot không tồn tại" }, { status: 404 });
+    }
+
+    // Return public config (no system_prompt for security)
+    return NextResponse.json({
+      id: bot.id,
+      name: bot.name,
+      greeting: bot.greeting,
+      theme_color: bot.theme_color,
+      position: bot.position,
+      avatar_url: bot.avatar_url,
+    });
+  } catch (error) {
+    console.error("Get bot error:", error);
+    return NextResponse.json(
+      { error: "Không thể tải bot" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function PUT(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const body = await request.json();
+
+    const bot = await updateBot(id, {
+      name: body.name,
+      greeting: body.greeting,
+      system_prompt: body.system_prompt,
+      theme_color: body.theme_color,
+      position: body.position,
+      avatar_url: body.avatar_url,
+      allowed_domains: body.allowed_domains,
+    });
+
+    if (!bot) {
+      return NextResponse.json({ error: "Bot không tồn tại" }, { status: 404 });
+    }
+
+    return NextResponse.json({ bot, message: "Đã cập nhật bot" });
+  } catch (error) {
+    console.error("Update bot error:", error);
+    return NextResponse.json(
+      { error: "Lỗi cập nhật: " + (error as Error).message },
+      { status: 500 }
+    );
+  }
+}

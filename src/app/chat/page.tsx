@@ -12,7 +12,6 @@ import {
   Loader2,
   Search,
   PenLine,
-  Sparkles,
   Star,
   TriangleAlert,
   CircleAlert,
@@ -65,13 +64,31 @@ interface ChatMessage {
   isStreaming?: boolean;
 }
 
+/** Live elapsed-time counter shown during analysis */
+function ElapsedTimer({ startTime }: { startTime: number }) {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setElapsed(Math.floor((Date.now() - startTime) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, [startTime]);
+
+  return (
+    <p className="text-[10px] text-stone-400 mt-1.5 tabular-nums">
+      ⏱ {elapsed}s
+    </p>
+  );
+}
+
 export default function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisPhase, setAnalysisPhase] = useState("");
+  const [analysisProgress, setAnalysisProgress] = useState(0);
+  const [analysisLabel, setAnalysisLabel] = useState("");
+  const [completedSteps, setCompletedSteps] = useState<string[]>([]);
+  const [analysisStartTime, setAnalysisStartTime] = useState<number>(0);
   const [copied, setCopied] = useState<string | null>(null);
-  const [mode, setMode] = useState<"analyze" | "chat">("analyze");
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
   const [showHistory, setShowHistory] = useState(false);
@@ -97,11 +114,10 @@ export default function ChatPage() {
         content: m.content,
         analysis: m.analysis,
       }));
-      conv.mode = mode;
       saveConversation(conv);
       setConversations(listConversations());
     }
-  }, [messages, currentConversationId, mode]);
+  }, [messages, currentConversationId]);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -121,17 +137,16 @@ export default function ChatPage() {
   }, [input]);
 
   const startNewConversation = useCallback(() => {
-    const conv = createConversation(mode);
+    const conv = createConversation();
     saveConversation(conv);
     setCurrentConversationId(conv.id);
     setMessages([]);
     setConversations(listConversations());
     setShowHistory(false);
-  }, [mode]);
+  }, []);
 
   const loadConversation = useCallback((conv: ChatConversation) => {
     setCurrentConversationId(conv.id);
-    setMode(conv.mode);
     setMessages(
       conv.messages.map((m) => ({
         role: m.role,
@@ -162,59 +177,16 @@ export default function ChatPage() {
 
   const ensureConversation = useCallback(() => {
     if (!currentConversationId) {
-      const conv = createConversation(mode);
+      const conv = createConversation();
       saveConversation(conv);
       setCurrentConversationId(conv.id);
       setConversations(listConversations());
       return conv.id;
     }
     return currentConversationId;
-  }, [currentConversationId, mode]);
+  }, [currentConversationId]);
 
-  const handleAnalyze = async () => {
-    if (!input.trim() || isAnalyzing) return;
-    ensureConversation();
-    const userMessage: ChatMessage = { role: "user", content: input };
-    setMessages((prev) => [...prev, userMessage]);
-    setInput("");
-    setIsAnalyzing(true);
-
-    try {
-      setAnalysisPhase("detecting");
-      const res = await fetch("/api/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: input }),
-      });
-
-      // Check content-type to avoid parsing HTML as JSON
-      const contentType = res.headers.get("content-type") || "";
-      if (!contentType.includes("application/json")) {
-        throw new Error("Server không phản hồi — vui lòng thử lại sau.");
-      }
-
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "Lỗi phân tích");
-      }
-      const result: AnalysisResult = await res.json();
-      setAnalysisPhase("");
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: result.rebuttal, analysis: result },
-      ]);
-    } catch (error) {
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: `Lỗi: ${(error as Error).message}` },
-      ]);
-    } finally {
-      setIsAnalyzing(false);
-      setAnalysisPhase("");
-    }
-  };
-
-  const handleChat = async () => {
+  const handleSend = async () => {
     if (!input.trim() || isAnalyzing) return;
     ensureConversation();
     const userMessage: ChatMessage = { role: "user", content: input };
@@ -222,41 +194,146 @@ export default function ChatPage() {
     setMessages(newMessages);
     setInput("");
     setIsAnalyzing(true);
+    setAnalysisProgress(0);
+    setAnalysisLabel("");
+    setCompletedSteps([]);
+    setAnalysisStartTime(Date.now());
+
+    // Add streaming placeholder
     setMessages((prev) => [
       ...prev,
       { role: "assistant", content: "", isStreaming: true },
     ]);
+
+    let partialResult: AnalysisResult | null = null;
+    let currentPhase = "";
+    let fullContent = "";
+    let isAnalyzeMode = false;
 
     try {
       const chatMessages = newMessages.map((m) => ({
         role: m.role,
         content: m.content,
       }));
+
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: chatMessages }),
       });
+
       if (!res.ok || !res.headers.get("content-type")?.includes("text/event-stream")) {
-        throw new Error("Server không phản hồi — vui lòng thử lại sau.");
+        let errorMsg = `Lỗi (HTTP ${res.status})`;
+        try {
+          const errData = await res.json();
+          errorMsg = errData.error || errorMsg;
+        } catch { /* not JSON */ }
+        throw new Error(errorMsg);
       }
 
       const reader = res.body?.getReader();
       const decoder = new TextDecoder();
-      let fullContent = "";
 
       if (reader) {
+        let buffer = "";
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          const text = decoder.decode(value, { stream: true });
-          for (const line of text.split("\n")) {
-            if (line.startsWith("data: ")) {
-              const data = line.slice(6);
-              if (data === "[DONE]") break;
-              try {
-                const parsed = JSON.parse(data);
-                fullContent += parsed.content || "";
+          buffer += decoder.decode(value, { stream: true });
+
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            const data = line.slice(6);
+            if (data === "[DONE]") break;
+
+            try {
+              const event = JSON.parse(data);
+
+              // ── Analyze mode events ──
+              if (event.type === "step") {
+                isAnalyzeMode = true;
+                if (!partialResult) {
+                  partialResult = { claims: [], sources: [], rebuttal: "", ragContext: [] };
+                }
+                if (currentPhase) {
+                  const prev = currentPhase;
+                  setCompletedSteps((steps) => {
+                    if (!steps.includes(prev)) return [...steps, prev];
+                    return steps;
+                  });
+                }
+                currentPhase = event.step || "";
+                setAnalysisPhase(currentPhase);
+                setAnalysisLabel(event.label || "");
+                if (event.progress) setAnalysisProgress(event.progress);
+                // Remove streaming placeholder when analyze mode starts
+                setMessages((prev) => {
+                  const updated = [...prev];
+                  const last = updated[updated.length - 1];
+                  if (last?.isStreaming && !last.content) {
+                    return updated.slice(0, -1);
+                  }
+                  return updated;
+                });
+                continue;
+              }
+
+              if (event.type === "claims" && partialResult) {
+                partialResult.claims = event.data || [];
+                if (event.progress) setAnalysisProgress(event.progress);
+                continue;
+              }
+
+              if (event.type === "sources" && partialResult) {
+                partialResult.sources = event.data?.sources || [];
+                partialResult.ragContext = event.data?.ragContext || [];
+                if (event.progress) setAnalysisProgress(event.progress);
+                continue;
+              }
+
+              if (event.type === "result" && partialResult) {
+                partialResult = event.data || partialResult;
+                setAnalysisProgress(100);
+                setCompletedSteps((steps) => {
+                  if (!steps.includes("rebutting")) return [...steps, "rebutting"];
+                  return steps;
+                });
+                continue;
+              }
+
+              if (event.type === "error") {
+                console.warn("[Chat] Step error:", event.data);
+                continue;
+              }
+
+              // ── Streaming rebuttal chunks ──
+              if (event.type === "rebuttal_chunk" && partialResult) {
+                const chunk = event.data || "";
+                partialResult.rebuttal = (partialResult.rebuttal || "") + chunk;
+                // Show streaming rebuttal in messages
+                const currentRebuttal = partialResult.rebuttal;
+                setMessages((prev) => {
+                  const last = prev[prev.length - 1];
+                  if (last?.isStreaming) {
+                    const updated = [...prev];
+                    updated[updated.length - 1] = { ...last, content: currentRebuttal };
+                    return updated;
+                  }
+                  // First chunk — add a streaming message
+                  return [
+                    ...prev,
+                    { role: "assistant" as const, content: currentRebuttal, isStreaming: true },
+                  ];
+                });
+                continue;
+              }
+
+              // ── Chat mode events ──
+              if (event.content !== undefined) {
+                fullContent += event.content || "";
                 setMessages((prev) => {
                   const updated = [...prev];
                   const last = updated[updated.length - 1];
@@ -265,42 +342,62 @@ export default function ChatPage() {
                   }
                   return updated;
                 });
-              } catch {
-                /* skip */
               }
+            } catch {
+              // Skip unparseable
             }
           }
         }
       }
-      setMessages((prev) => {
-        const updated = [...prev];
-        const last = updated[updated.length - 1];
-        if (last) updated[updated.length - 1] = { ...last, isStreaming: false };
-        return updated;
-      });
+
+      // ── Finalize ──
+      if (isAnalyzeMode && partialResult) {
+        // Analyze mode: show final analysis result with analysis cards
+        setAnalysisPhase("");
+        setMessages((prev) => {
+          // Remove streaming message if present
+          const filtered = prev.filter((m) => !m.isStreaming);
+          return [
+            ...filtered,
+            { role: "assistant" as const, content: partialResult!.rebuttal, analysis: partialResult! },
+          ];
+        });
+      } else {
+        // Chat mode: finalize streaming
+        setMessages((prev) => {
+          const updated = [...prev];
+          const last = updated[updated.length - 1];
+          if (last) updated[updated.length - 1] = { ...last, isStreaming: false };
+          return updated;
+        });
+      }
     } catch (error) {
       setMessages((prev) => {
         const updated = [...prev];
-        updated[updated.length - 1] = {
-          role: "assistant",
-          content: `Lỗi: ${(error as Error).message}`,
-        };
+        const last = updated[updated.length - 1];
+        if (last) {
+          updated[updated.length - 1] = {
+            role: "assistant",
+            content: `Lỗi: ${(error as Error).message}`,
+          };
+        } else {
+          updated.push({ role: "assistant", content: `Lỗi: ${(error as Error).message}` });
+        }
         return updated;
       });
     } finally {
       setIsAnalyzing(false);
+      setAnalysisPhase("");
+      setAnalysisProgress(0);
+      setAnalysisLabel("");
+      setCompletedSteps([]);
     }
-  };
-
-  const handleSubmit = () => {
-    if (mode === "analyze") handleAnalyze();
-    else handleChat();
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      handleSubmit();
+      handleSend();
     }
   };
 
@@ -411,13 +508,9 @@ export default function ChatPage() {
                         </p>
                         <div className="flex items-center gap-2 mt-1">
                           <Badge
-                            className={`text-[9px] border-0 px-1.5 py-0 ${
-                              conv.mode === "analyze"
-                                ? "bg-red-50 text-red-500"
-                                : "bg-blue-50 text-blue-500"
-                            }`}
+                            className="text-[9px] border-0 px-1.5 py-0 bg-stone-100 text-stone-500"
                           >
-                            {conv.mode === "analyze" ? "Phân tích" : "Chat"}
+                            Chat
                           </Badge>
                           <span className="text-[10px] text-stone-400">
                             {formatTimeAgo(conv.updatedAt)}
@@ -469,31 +562,6 @@ export default function ChatPage() {
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Mode switcher */}
-          <div className="flex bg-stone-100 p-0.5 rounded-lg">
-            <button
-              onClick={() => setMode("analyze")}
-              className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                mode === "analyze"
-                  ? "bg-white text-stone-800 shadow-sm"
-                  : "text-stone-500 hover:text-stone-700"
-              }`}
-            >
-              <Search className="w-3.5 h-3.5" />
-              <span className="hidden xs:inline sm:inline">Phân tích</span>
-            </button>
-            <button
-              onClick={() => setMode("chat")}
-              className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                mode === "chat"
-                  ? "bg-white text-stone-800 shadow-sm"
-                  : "text-stone-500 hover:text-stone-700"
-              }`}
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span className="hidden xs:inline sm:inline">Chat</span>
-            </button>
-          </div>
 
           {/* New conversation button */}
           <button
@@ -516,34 +584,29 @@ export default function ChatPage() {
                 <Star className="w-7 h-7 text-vn-yellow fill-vn-yellow/30" />
               </div>
               <h2 className="text-base font-semibold text-stone-800 mb-1.5">
-                {mode === "analyze"
-                  ? "Phân Tích Thông Tin Xuyên Tạc"
-                  : "Chat với SaoMai AI"}
+                SaoMai AI
               </h2>
               <p className="text-sm text-stone-400 max-w-md mx-auto leading-relaxed px-4">
-                {mode === "analyze"
-                  ? "Paste đoạn text nghi xuyên tạc vào ô bên dưới. AI sẽ nhận diện, tìm nguồn chính thống, và viết bài phản biện."
-                  : "Hỏi bất kỳ câu hỏi nào liên quan đến nhận diện và phản biện thông tin xuyên tạc."}
+                Paste nội dung xuyên tạc để phân tích, hoặc hỏi bất kỳ câu hỏi nào.
+                AI sẽ tự động nhận diện và phản biện.
               </p>
 
-              {mode === "analyze" && (
-                <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-sm mx-auto px-4 sm:px-0">
-                  {[
-                    { icon: AlertTriangle, label: "Nhận diện", desc: "Phát hiện xuyên tạc" },
-                    { icon: Search, label: "Tìm nguồn", desc: "Báo chính thống" },
-                    { icon: PenLine, label: "Phản biện", desc: "Có dẫn chứng" },
-                  ].map((item) => (
-                    <div
-                      key={item.label}
-                      className="p-3 rounded-xl bg-stone-50 text-center border border-stone-100"
-                    >
-                      <item.icon className="w-4 h-4 text-vn-red mx-auto mb-1.5" />
-                      <p className="text-[11px] font-semibold text-stone-700">{item.label}</p>
-                      <p className="text-[10px] text-stone-400 mt-0.5">{item.desc}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-sm mx-auto px-4 sm:px-0">
+                {[
+                  { icon: AlertTriangle, label: "Nhận diện", desc: "Phát hiện xuyên tạc" },
+                  { icon: Search, label: "Tìm nguồn", desc: "RAG + Internet" },
+                  { icon: PenLine, label: "Phản biện", desc: "Có dẫn chứng" },
+                ].map((item) => (
+                  <div
+                    key={item.label}
+                    className="p-3 rounded-xl bg-stone-50 text-center border border-stone-100"
+                  >
+                    <item.icon className="w-4 h-4 text-vn-red mx-auto mb-1.5" />
+                    <p className="text-[11px] font-semibold text-stone-700">{item.label}</p>
+                    <p className="text-[10px] text-stone-400 mt-0.5">{item.desc}</p>
+                  </div>
+                ))}
+              </div>
 
               {/* Recent conversations hint */}
               {conversations.length > 0 && (
@@ -739,17 +802,49 @@ export default function ChatPage() {
                 <Image src="/saomai-logo.jpg" alt="SaoMai" width={28} height={28} className="w-full h-full object-cover" />
               </div>
               <div className="flex-1 min-w-0 bg-stone-50 rounded-2xl rounded-tl-lg px-3 sm:px-4 py-3 border border-stone-100">
+                {/* Completed steps */}
+                {completedSteps.map((step) => (
+                  <div key={step} className="flex items-center gap-2 mb-1.5">
+                    <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                    <span className="text-xs text-emerald-600">
+                      {step === "detecting" && "Nhận diện xong"}
+                      {step === "searching" && "Tìm nguồn xong"}
+                      {step === "rebutting" && "Phản biện xong"}
+                    </span>
+                  </div>
+                ))}
+
+                {/* Current step */}
                 <div className="flex items-center gap-2">
                   <Loader2 className="w-4 h-4 animate-spin text-vn-red shrink-0" />
-                  <span className="text-sm font-medium text-stone-600">
-                    {analysisPhase === "detecting" && "Đang nhận diện luận điểm xuyên tạc..."}
-                    {analysisPhase === "searching" && "Đang tìm nguồn chính thống..."}
-                    {analysisPhase === "rebutting" && "Đang viết bài phản biện..."}
+                  <span className="text-sm font-medium text-stone-600 flex-1">
+                    {analysisLabel || (
+                      <>
+                        {analysisPhase === "detecting" && "Đang nhận diện luận điểm xuyên tạc..."}
+                        {analysisPhase === "searching" && "Đang tìm nguồn chính thống..."}
+                        {analysisPhase === "rebutting" && "Đang viết bài phản biện..."}
+                      </>
+                    )}
+                  </span>
+                  <span className="text-[10px] text-stone-400 tabular-nums shrink-0">
+                    {analysisPhase === "detecting" && "1/3"}
+                    {analysisPhase === "searching" && "2/3"}
+                    {analysisPhase === "rebutting" && "3/3"}
                   </span>
                 </div>
-                <div className="mt-2 h-1 bg-stone-200 rounded-full overflow-hidden">
-                  <div className="h-full bg-gradient-to-r from-vn-red to-vn-yellow animate-shimmer rounded-full" />
+
+                {/* Progress bar */}
+                <div className="mt-2 h-1.5 bg-stone-200 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-vn-red to-vn-yellow rounded-full transition-all duration-700 ease-out"
+                    style={{ width: `${analysisProgress}%` }}
+                  />
                 </div>
+
+                {/* Elapsed time */}
+                {analysisStartTime > 0 && (
+                  <ElapsedTimer startTime={analysisStartTime} />
+                )}
               </div>
             </div>
           )}
@@ -768,17 +863,13 @@ export default function ChatPage() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={
-                mode === "analyze"
-                  ? "Dán nội dung nghi ngờ xuyên tạc..."
-                  : "Hỏi SaoMai AI..."
-              }
+              placeholder="Paste nội dung xuyên tạc hoặc hỏi SaoMai AI..."
               className="flex-1 resize-none bg-transparent px-2.5 sm:px-3 py-2.5 text-sm text-stone-800 placeholder:text-stone-400 outline-none min-h-[40px] max-h-[200px]"
               rows={1}
               disabled={isAnalyzing}
             />
             <Button
-              onClick={handleSubmit}
+              onClick={handleSend}
               disabled={!input.trim() || isAnalyzing}
               className="bg-vn-red hover:bg-vn-red-dark text-white h-9 w-9 rounded-xl shrink-0 shadow-sm"
               size="icon"

@@ -4,7 +4,7 @@ export interface ChatConversation {
   id: string;
   title: string;
   messages: ChatMessageData[];
-  mode: "analyze" | "chat";
+  mode?: string; // Legacy, kept for backward compat
   createdAt: string;
   updatedAt: string;
 }
@@ -64,13 +64,12 @@ export function getConversation(id: string): ChatConversation | null {
   return conversations.find((c) => c.id === id) || null;
 }
 
-export function createConversation(mode: "analyze" | "chat"): ChatConversation {
+export function createConversation(): ChatConversation {
   const now = new Date().toISOString();
   return {
     id: generateId(),
-    title: mode === "analyze" ? "Phân tích mới" : "Chat mới",
+    title: "Cuộc trò chuyện mới",
     messages: [],
-    mode,
     createdAt: now,
     updatedAt: now,
   };

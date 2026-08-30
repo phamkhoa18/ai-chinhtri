@@ -43,6 +43,15 @@ export default function KnowledgePage() {
   const fetchDocuments = useCallback(async () => {
     try {
       const res = await fetch("/api/documents");
+      if (!res.ok) {
+        console.error("Failed to fetch documents: status", res.status);
+        return;
+      }
+      const contentType = res.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        console.error("Failed to fetch documents: unexpected content-type", contentType);
+        return;
+      }
       const data = await res.json();
       setDocuments(data.documents || []);
     } catch {
@@ -70,8 +79,12 @@ export default function KnowledgePage() {
       setUploadProgress(30);
       const res = await fetch("/api/documents", { method: "POST", body: formData });
       setUploadProgress(80);
+      const contentType = res.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        throw new Error("Server không phản hồi — vui lòng thử lại sau.");
+      }
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      if (!res.ok) throw new Error(data.error || "Lỗi upload tài liệu");
       setUploadProgress(100);
       setNotification({ type: "success", message: data.message });
       fetchDocuments();
@@ -96,8 +109,12 @@ export default function KnowledgePage() {
         body: JSON.stringify({ text: textInput, name: textName || undefined }),
       });
       setUploadProgress(80);
+      const contentType = res.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        throw new Error("Server không phản hồi — vui lòng thử lại sau.");
+      }
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      if (!res.ok) throw new Error(data.error || "Lỗi thêm tài liệu");
       setUploadProgress(100);
       setNotification({ type: "success", message: data.message });
       setTextInput("");
@@ -115,15 +132,26 @@ export default function KnowledgePage() {
 
   const handleDelete = async (id: string, name: string) => {
     try {
-      await fetch("/api/documents", {
+      const res = await fetch("/api/documents", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id }),
       });
+      if (!res.ok) {
+        let errorMsg = "Không thể xóa tài liệu";
+        try {
+          const contentType = res.headers.get("content-type") || "";
+          if (contentType.includes("application/json")) {
+            const data = await res.json();
+            errorMsg = data.error || errorMsg;
+          }
+        } catch { /* ignore parse error */ }
+        throw new Error(errorMsg);
+      }
       setNotification({ type: "success", message: `Đã xóa "${name}"` });
       fetchDocuments();
-    } catch {
-      setNotification({ type: "error", message: "Không thể xóa tài liệu" });
+    } catch (error) {
+      setNotification({ type: "error", message: (error as Error).message || "Không thể xóa tài liệu" });
     }
   };
 

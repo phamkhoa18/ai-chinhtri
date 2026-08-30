@@ -40,22 +40,32 @@
 
   // ─── Fetch bot config ───
   function fetchConfig(callback) {
+    var defaultCfg = {
+      name: "SaoMai AI",
+      theme_color: "#DC2626",
+      position: "bottom-right",
+      greeting: "Xin chào! Tôi là SaoMai AI. Tôi có thể giúp gì cho bạn?"
+    };
+
     var xhr = new XMLHttpRequest();
     xhr.open("GET", baseUrl + "/api/bots/" + botId);
     xhr.onload = function () {
       if (xhr.status === 200) {
         try {
           config = JSON.parse(xhr.responseText);
-          callback(config);
+          callback(config || defaultCfg);
         } catch (e) {
-          console.error("[SaoMai Widget] Invalid config response");
+          console.error("[SaoMai Widget] Invalid config response, using default");
+          callback(defaultCfg);
         }
       } else {
-        console.error("[SaoMai Widget] Bot not found (status " + xhr.status + ")");
+        console.warn("[SaoMai Widget] Bot config status " + xhr.status + ", using default");
+        callback(defaultCfg);
       }
     };
     xhr.onerror = function () {
-      console.error("[SaoMai Widget] Failed to load bot config");
+      console.warn("[SaoMai Widget] Failed to fetch bot config, using default");
+      callback(defaultCfg);
     };
     xhr.send();
   }

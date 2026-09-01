@@ -1,0 +1,142 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="100%" height="100%">
+  <defs>
+    <!-- Background Circle Red Gradient with luxury depth -->
+    <linearGradient id="botRedGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#EF4444" />
+      <stop offset="60%" stop-color="#DC2626" />
+      <stop offset="100%" stop-color="#991B1B" />
+    </linearGradient>
+
+    <!-- Metallic Gold Gradient for trims and star -->
+    <linearGradient id="botGoldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FEF08A" />
+      <stop offset="40%" stop-color="#F59E0B" />
+      <stop offset="100%" stop-color="#B45309" />
+    </linearGradient>
+
+    <!-- Robot Porcelain Head Gradient -->
+    <linearGradient id="botHeadGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="70%" stop-color="#F8FAFC" />
+      <stop offset="100%" stop-color="#E2E8F0" />
+    </linearGradient>
+
+    <!-- Screen Glass Gradient -->
+    <linearGradient id="botScreenGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1E293B" />
+      <stop offset="100%" stop-color="#090D16" />
+    </linearGradient>
+
+    <!-- Gloss Specular Reflection -->
+    <linearGradient id="botGlossGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.5" />
+      <stop offset="40%" stop-color="#FFFFFF" stop-opacity="0.1" />
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0" />
+    </linearGradient>
+
+    <!-- Soft Glow Filter -->
+    <filter id="neonGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="3" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+
+    <!-- 3D Drop Shadow -->
+    <filter id="botDropShadow" x="-25%" y="-25%" width="150%" height="150%">
+      <feDropShadow dx="0" dy="7" stdDeviation="7" flood-color="#7F1D1D" flood-opacity="0.4" />
+    </filter>
+  </defs>
+
+  <style>
+    @keyframes botHoverLevitate {
+      0%, 100% { transform: translateY(0px); }
+      50% { transform: translateY(-4px); }
+    }
+    @keyframes botWaveArm {
+      0%, 100% { transform: rotate(0deg); }
+      18% { transform: rotate(-26deg); }
+      38% { transform: rotate(18deg); }
+      58% { transform: rotate(-18deg); }
+      78% { transform: rotate(12deg); }
+    }
+    @keyframes botEyePulse {
+      0%, 90%, 100% { transform: scaleY(1); }
+      95% { transform: scaleY(0.12); }
+    }
+    @keyframes starPulseGlow {
+      0%, 100% { transform: scale(1); filter: drop-shadow(0 0 2px #FDE047); }
+      50% { transform: scale(1.1); filter: drop-shadow(0 0 7px #FDE047); }
+    }
+    .bot-entire-body {
+      animation: botHoverLevitate 3.2s ease-in-out infinite;
+    }
+    .waving-arm-group {
+      transform-origin: 86px 60px;
+      animation: botWaveArm 2.2s ease-in-out infinite;
+    }
+    .animated-eyes {
+      transform-origin: 57px 53px;
+      animation: botEyePulse 3.8s ease-in-out infinite;
+    }
+    .star-crest {
+      transform-origin: 57px 29px;
+      animation: starPulseGlow 2.5s ease-in-out infinite;
+    }
+  </style>
+
+  <!-- Red Circle Base Badge with Metallic Gold Rim -->
+  <g filter="url(#botDropShadow)">
+    <circle cx="60" cy="60" r="54" fill="url(#botRedGrad)" />
+    <circle cx="60" cy="60" r="52" fill="none" stroke="url(#botGoldGrad)" stroke-width="2.5" stroke-opacity="0.9" />
+  </g>
+
+  <!-- Inner Soft Light Ring -->
+  <circle cx="60" cy="60" r="49" fill="none" stroke="#FFFFFF" stroke-width="1" stroke-opacity="0.2" />
+
+  <g class="bot-entire-body">
+    <!-- Antenna with Golden Light -->
+    <path d="M57 28 L57 19" stroke="url(#botGoldGrad)" stroke-width="3" stroke-linecap="round" />
+    <circle cx="57" cy="17" r="4.5" fill="#FDE047" filter="url(#neonGlow)" />
+
+    <!-- Cute Clean White Head -->
+    <rect x="25" y="27" width="64" height="54" rx="22" fill="url(#botHeadGrad)" stroke="#CBD5E1" stroke-width="1.8" />
+
+    <!-- Screen Bezel Face -->
+    <rect x="31" y="33" width="52" height="42" rx="16" fill="url(#botScreenGrad)" stroke="#334155" stroke-width="1.5" />
+    
+    <!-- Screen Curved Gloss Reflection -->
+    <path d="M33 35 Q57 42 81 35 L81 44 Q57 51 33 44 Z" fill="url(#botGlossGrad)" />
+
+    <!-- Cute Smiling LED Eyes (Cyan/Sky Glow) -->
+    <g class="animated-eyes">
+      <!-- Left Eye Arc (Happy / Smiling) -->
+      <path d="M40 52 Q47 43 54 52" fill="none" stroke="#38BDF8" stroke-width="4.5" stroke-linecap="round" filter="url(#neonGlow)" />
+      <!-- Right Eye Arc (Happy / Smiling) -->
+      <path d="M60 52 Q67 43 74 52" fill="none" stroke="#38BDF8" stroke-width="4.5" stroke-linecap="round" filter="url(#neonGlow)" />
+
+      <!-- Blushing Cheeks -->
+      <ellipse cx="38" cy="58" rx="4" ry="2.2" fill="#F43F5E" opacity="0.85" />
+      <ellipse cx="76" cy="58" rx="4" ry="2.2" fill="#F43F5E" opacity="0.85" />
+
+      <!-- Cute Tiny Smile Curve -->
+      <path d="M54 60 Q57 63 60 60" fill="none" stroke="#38BDF8" stroke-width="2" stroke-linecap="round" />
+    </g>
+
+    <!-- Golden Star Emblem on Forehead / Top -->
+    <g class="star-crest">
+      <path d="M57 24 L58.8 28.2 L63 28.7 L59.8 31.6 L60.7 35.8 L57 33.6 L53.3 35.8 L54.2 31.6 L51 28.7 L55.2 28.2 Z" fill="url(#botGoldGrad)" />
+    </g>
+
+    <!-- Waving Arm (Right Side, friendly salute) -->
+    <g class="waving-arm-group">
+      <!-- Arm Limb -->
+      <path d="M84 57 Q95 50 97 38" fill="none" stroke="#FFFFFF" stroke-width="5.5" stroke-linecap="round" />
+      <!-- Hand Palm with Golden Trim -->
+      <circle cx="97" cy="36" r="7.5" fill="url(#botGoldGrad)" stroke="#FFFFFF" stroke-width="1.8" />
+      <circle cx="97" cy="36" r="3.2" fill="#FFFFFF" />
+      <!-- Waving Finger Accents -->
+      <path d="M94 29 L93 24" stroke="url(#botGoldGrad)" stroke-width="2" stroke-linecap="round" />
+      <path d="M97 29 L98 23" stroke="url(#botGoldGrad)" stroke-width="2" stroke-linecap="round" />
+      <path d="M101 31 L103 25" stroke="url(#botGoldGrad)" stroke-width="2" stroke-linecap="round" />
+    </g>
+  </g>
+</svg>

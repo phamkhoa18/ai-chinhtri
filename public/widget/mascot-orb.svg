@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="100%" height="100%">
+  <defs>
+    <radialGradient id="orbGlow" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#FDE047" />
+      <stop offset="35%" stop-color="#EF4444" />
+      <stop offset="70%" stop-color="#DC2626" />
+      <stop offset="100%" stop-color="#7F1D1D" />
+    </radialGradient>
+    <linearGradient id="starGold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="40%" stop-color="#FEF08A" />
+      <stop offset="100%" stop-color="#F59E0B" />
+    </linearGradient>
+    <filter id="superGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="5" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <style>
+    @keyframes orbRotate {
+      0% { transform: rotate(0deg) scale(1); }
+      50% { transform: rotate(180deg) scale(1.04); }
+      100% { transform: rotate(360deg) scale(1); }
+    }
+    @keyframes starPulse {
+      0%, 100% { transform: scale(1) rotate(0deg); }
+      50% { transform: scale(1.18) rotate(12deg); }
+    }
+    @keyframes waveHi {
+      0%, 100% { transform: rotate(0deg); }
+      25% { transform: rotate(-25deg); }
+      75% { transform: rotate(20deg); }
+    }
+    .orb-core {
+      transform-origin: 60px 60px;
+      animation: orbRotate 12s linear infinite;
+    }
+    .star-center {
+      transform-origin: 60px 60px;
+      animation: starPulse 3s ease-in-out infinite;
+    }
+    .hand-wave-badge {
+      transform-origin: 94px 44px;
+      animation: waveHi 2s ease-in-out infinite;
+    }
+  </style>
+
+  <!-- Glowing Outer Aura -->
+  <circle cx="60" cy="60" r="54" fill="url(#orbGlow)" filter="url(#superGlow)" opacity="0.9" />
+
+  <!-- Inner Glass Sphere -->
+  <circle cx="60" cy="60" r="48" fill="url(#orbGlow)" stroke="rgba(255,255,255,0.4)" stroke-width="2" />
+  <ellipse cx="50" cy="36" rx="28" ry="14" fill="#FFFFFF" opacity="0.25" />
+
+  <!-- Animated Glowing AI Diamond Star (Center) -->
+  <g class="star-center">
+    <!-- 4-pointed Gemini / Intelligence Star -->
+    <path d="M60 26 Q60 60 26 60 Q60 60 60 94 Q60 60 94 60 Q60 60 60 26 Z" fill="url(#starGold)" filter="url(#superGlow)" />
+    <!-- Center Bright Core -->
+    <circle cx="60" cy="60" r="6" fill="#FFFFFF" />
+  </g>
+
+  <!-- Friendly Waving Hand Icon at top right -->
+  <g class="hand-wave-badge">
+    <circle cx="94" cy="30" r="16" fill="#FFFFFF" stroke="#DC2626" stroke-width="2" />
+    <text x="94" y="36" font-size="18" text-anchor="middle" dominant-baseline="middle">👋</text>
+  </g>
+</svg>

@@ -7,9 +7,23 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const bot = await getBot(id);
+    let bot = await getBot(id);
     if (!bot) {
-      return NextResponse.json({ error: "Bot không tồn tại" }, { status: 404 });
+      // Default fixed fallback config
+      return NextResponse.json({
+        id: "default",
+        name: "SaoMai AI",
+        greeting: "👋 Xin chào! Tôi là Trợ lý AI SaoMai. Hãy bấm vào tôi để được hỗ trợ nhé!",
+        theme_color: "#DC2626",
+        position: "bottom-right",
+        avatar_url: "/widget/mascot-ai.png",
+      }, {
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type",
+        },
+      });
     }
 
     // Return public config (no system_prompt for security)

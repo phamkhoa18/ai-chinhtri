@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback, use } from "react";
-import { Send, Loader2, X, Sparkles } from "lucide-react";
+import { Send, Loader2, X, RotateCcw, Copy, Check, Sparkles, ShieldCheck, ChevronRight, Zap } from "lucide-react";
 import { Markdown } from "@/components/Markdown";
 
 interface ChatMessage {
@@ -18,6 +18,20 @@ interface BotPublicConfig {
   avatar_url: string | null;
 }
 
+const DEFAULT_CONFIG: BotPublicConfig = {
+  id: "default",
+  name: "SaoMai AI",
+  greeting: "Xin chào! Tôi là Trợ lý AI SaoMai — chuyên biệt về bảo vệ nền tảng tư tưởng và cung cấp thông tin chính sách chuẩn xác. Tôi có thể giúp gì cho bạn hôm nay?",
+  theme_color: "#DC2626",
+  avatar_url: "/widget/mascot-clean-bot.svg",
+};
+
+const QUICK_PROMPTS = [
+  { icon: "🛡️", title: "Phản bác tin sai lệch", desc: "Cách nhận diện & phản biện thông tin xuyên tạc" },
+  { icon: "📜", title: "Nghị quyết & Chính sách", desc: "Tóm tắt các văn kiện, chủ trương mới nhất" },
+  { icon: "⚖️", title: "Pháp luật an ninh mạng", desc: "Quy định bảo vệ dữ liệu & thông tin chính trị" },
+];
+
 export default function WidgetChatPage({
   params,
 }: {
@@ -28,23 +42,30 @@ export default function WidgetChatPage({
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [botConfig, setBotConfig] = useState<BotPublicConfig | null>(null);
-  const [error, setError] = useState("");
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Load bot config
   useEffect(() => {
     async function loadConfig() {
+      if (!botId || botId === "default") {
+        setBotConfig(DEFAULT_CONFIG);
+        return;
+      }
       try {
         const res = await fetch(`/api/bots/${botId}`);
         if (!res.ok) {
-          setError("Bot không tồn tại hoặc đã bị xóa.");
+          setBotConfig(DEFAULT_CONFIG);
           return;
         }
         const data = await res.json();
-        setBotConfig(data);
+        setBotConfig({
+          ...data,
+          avatar_url: data.avatar_url || "/widget/mascot-clean-bot.svg",
+        });
       } catch {
-        setError("Không thể kết nối server.");
+        setBotConfig(DEFAULT_CONFIG);
       }
     }
     loadConfig();
@@ -63,17 +84,18 @@ export default function WidgetChatPage({
     const el = textareaRef.current;
     if (el) {
       el.style.height = "0px";
-      el.style.height = Math.min(el.scrollHeight, 120) + "px";
+      el.style.height = Math.min(el.scrollHeight, 80) + "px";
     }
   }, [input]);
 
-  const handleSend = async () => {
-    if (!input.trim() || isLoading) return;
+  const handleSend = async (customText?: string) => {
+    const textToSend = (customText || input).trim();
+    if (!textToSend || isLoading) return;
 
-    const userMessage: ChatMessage = { role: "user", content: input };
+    const userMessage: ChatMessage = { role: "user", content: textToSend };
     const newMessages = [...messages, userMessage];
     setMessages(newMessages);
-    setInput("");
+    if (!customText) setInput("");
     setIsLoading(true);
     setMessages((prev) => [
       ...prev,
@@ -89,11 +111,11 @@ export default function WidgetChatPage({
       const res = await fetch("/api/widget/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ botId, messages: chatMessages }),
+        body: JSON.stringify({ botId: botId || "default", messages: chatMessages }),
       });
 
       if (!res.ok || !res.headers.get("content-type")?.includes("text/event-stream")) {
-        let errMsg = "Lỗi kết nối";
+        let errMsg = "Lỗi kết nối máy chủ";
         try {
           const errData = await res.json();
           errMsg = errData.error || errMsg;
@@ -161,174 +183,209 @@ export default function WidgetChatPage({
     }
   };
 
-  const themeColor = botConfig?.theme_color || "#DC2626";
+  const handleCopy = (text: string, index: number) => {
+    navigator.clipboard.writeText(text);
+    setCopiedIndex(index);
+    setTimeout(() => setCopiedIndex(null), 2000);
+  };
 
-  // Error state
-  if (error) {
-    return (
-      <div className="h-full flex items-center justify-center p-6 text-center bg-gradient-to-br from-stone-50 to-stone-100">
-        <div>
-          <div className="w-14 h-14 rounded-2xl bg-red-50 flex items-center justify-center mx-auto mb-4">
-            <X className="w-7 h-7 text-red-400" />
-          </div>
-          <p className="text-sm text-stone-600 font-medium mb-1">Không thể kết nối</p>
-          <p className="text-xs text-stone-400">{error}</p>
-        </div>
-      </div>
-    );
-  }
+  const handleClearChat = () => {
+    if (messages.length > 0 && !isLoading) {
+      setMessages([]);
+    }
+  };
 
-  // Loading config
+  const handleClose = () => {
+    if (window.parent) {
+      window.parent.postMessage({ type: "SAOMAI_CLOSE_WIDGET" }, "*");
+    }
+  };
+
+  const avatarUrl = botConfig?.avatar_url || "/widget/mascot-clean-bot.svg";
+
   if (!botConfig) {
     return (
-      <div className="h-full flex items-center justify-center bg-gradient-to-br from-stone-50 to-stone-100">
-        <div className="text-center">
-          <div className="w-10 h-10 rounded-xl bg-white shadow-sm flex items-center justify-center mx-auto mb-3">
-            <Loader2 className="w-5 h-5 animate-spin text-stone-400" />
+      <div className="h-full flex items-center justify-center bg-slate-50">
+        <div className="text-center p-4">
+          <div className="w-10 h-10 rounded-2xl bg-white shadow-md border border-slate-150 flex items-center justify-center mx-auto mb-2">
+            <Loader2 className="w-5 h-5 animate-spin text-red-600" />
           </div>
-          <p className="text-xs text-stone-400">Đang kết nối...</p>
+          <p className="text-[11px] text-slate-500 font-medium">Đang khởi động...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div
-      className="flex flex-col h-full overflow-hidden"
-      style={{ "--widget-color": themeColor, "--widget-color-light": themeColor + "15" } as React.CSSProperties}
-    >
-      {/* ────── Header — Gradient, modern ────── */}
-      <header
-        className="shrink-0 relative overflow-hidden"
-        style={{ background: `linear-gradient(135deg, ${themeColor}, ${themeColor}dd)` }}
-      >
-        {/* Decorative circles */}
-        <div className="absolute -top-6 -right-6 w-20 h-20 rounded-full opacity-10 bg-white" />
-        <div className="absolute -bottom-3 -left-3 w-12 h-12 rounded-full opacity-10 bg-white" />
+    <div className="flex flex-col h-full overflow-hidden bg-gradient-to-b from-[#F8FAFC] to-[#EEF2F6] text-slate-800 antialiased font-sans select-none relative">
+      {/* 🌸 Ambient Luminous Accents (Tông Sáng Sang Trọng) 🌸 */}
+      <div className="absolute top-0 right-0 w-48 h-48 bg-red-500/[0.07] rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute bottom-1/4 left-0 w-40 h-40 bg-amber-400/[0.08] rounded-full blur-3xl pointer-events-none" />
 
-        <div className="relative px-4 py-3.5 flex items-center gap-3">
-          {/* Avatar */}
-          <div className="relative">
-            {botConfig.avatar_url ? (
-              <img
-                src={botConfig.avatar_url}
-                alt={botConfig.name}
-                className="w-9 h-9 rounded-xl object-cover ring-2 ring-white/20"
-              />
-            ) : (
-              <div className="w-9 h-9 rounded-xl overflow-hidden shadow-sm">
-                <img src="/saomai-logo.jpg" alt="SaoMai AI" className="w-full h-full object-cover" />
-              </div>
-            )}
-            {/* Online dot */}
-            <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-green-400 border-2 border-white/80 shadow-sm" />
+      {/* ────── Luxury Light Header ────── */}
+      <header className="shrink-0 px-3.5 py-2.5 bg-white/80 backdrop-blur-xl border-b border-slate-200/60 flex items-center justify-between z-10 relative shadow-[0_2px_12px_rgba(0,0,0,0.03)]">
+        <div className="flex items-center gap-2.5 min-w-0">
+          {/* Avatar - To rõ, sắc nét, không bị đóng khung */}
+          <div className="relative shrink-0 w-11 h-11 flex items-center justify-center">
+            <img
+              src={avatarUrl}
+              alt="SaoMai AI"
+              className="w-full h-full object-contain filter-none"
+            />
+            <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-500 border-2 border-white shadow-xs" />
           </div>
 
-          <div className="min-w-0 flex-1">
-            <h1 className="text-sm font-semibold text-white truncate tracking-tight">
-              {botConfig.name}
-            </h1>
-            <p className="text-[10px] text-white/70 flex items-center gap-1">
-              <Sparkles className="w-2.5 h-2.5" />
-              Trợ lý AI chuyên biệt
+          {/* Info */}
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5">
+              <h1 className="text-[13px] font-bold text-slate-900 tracking-tight truncate">
+                {botConfig.name}
+              </h1>
+              <span className="text-[9px] bg-red-50 text-red-700 font-semibold px-1.5 py-0.2 rounded-full border border-red-200/60 flex items-center gap-0.5">
+                <ShieldCheck className="w-2.5 h-2.5 text-red-600" />
+                Chính quy
+              </span>
+            </div>
+            <p className="text-[10px] text-slate-500 font-medium flex items-center gap-1 mt-0.5 truncate">
+              <Zap className="w-2.5 h-2.5 text-amber-500 shrink-0" />
+              Trợ lý AI Bảo vệ nền tảng tư tưởng
             </p>
           </div>
         </div>
+
+        {/* Header Actions */}
+        <div className="flex items-center gap-1 shrink-0">
+          {messages.length > 0 && (
+            <button
+              onClick={handleClearChat}
+              title="Làm mới cuộc trò chuyện"
+              className="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-500 hover:text-slate-800 flex items-center justify-center transition-all"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+            </button>
+          )}
+          <button
+            onClick={handleClose}
+            title="Thu nhỏ"
+            className="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-500 hover:text-slate-800 flex items-center justify-center transition-all"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </header>
 
-      {/* ────── Messages ────── */}
-      <div className="flex-1 overflow-y-auto px-3 py-4 space-y-3" style={{ background: "linear-gradient(180deg, #fafaf9 0%, #f5f5f4 100%)" }}>
-        {/* Welcome / Greeting */}
+      {/* ────── Messages Stream ────── */}
+      <div className="flex-1 overflow-y-auto px-3.5 py-3.5 space-y-3.5 select-text z-10 relative">
+        {/* Welcome Card & Interactive Chips */}
         {messages.length === 0 && (
-          <div className="pt-4 pb-2">
-            {/* Greeting bubble */}
-            <div className="flex gap-2.5 mb-4">
-              <div className="w-7 h-7 rounded-lg shrink-0 overflow-hidden mt-0.5 shadow-sm">
-                <img src="/saomai-logo.jpg" alt="SaoMai AI" className="w-full h-full object-cover" />
-              </div>
-              <div className="bg-white rounded-2xl rounded-tl-lg px-3.5 py-2.5 text-[13px] text-stone-600 shadow-sm border border-stone-100/80 max-w-[85%] leading-relaxed">
-                {botConfig.greeting}
+          <div className="space-y-3.5 pt-1">
+            {/* Assistant Welcome Card */}
+            <div className="flex gap-2.5 items-start">
+              <img
+                src={avatarUrl}
+                alt="SaoMai"
+                className="w-8 h-8 object-contain shrink-0 mt-0.5"
+              />
+              <div className="bg-white rounded-2xl rounded-tl-xs p-3.5 text-[12.5px] text-slate-700 leading-relaxed border border-slate-200/70 shadow-[0_4px_16px_rgba(0,0,0,0.04)] max-w-[88%] space-y-1.5">
+                <div className="flex items-center gap-1.5 text-red-600 font-semibold text-[11.5px]">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Kính chào Quý độc giả!</span>
+                </div>
+                <p className="text-slate-600">{botConfig.greeting}</p>
               </div>
             </div>
 
-            {/* Quick suggestions */}
-            <div className="pl-9 space-y-1.5">
-              {[
-                "Kiểm tra thông tin xuyên tạc",
-                "Chính sách mới nhất",
-                "Phản biện tin giả",
-              ].map((text) => (
-                <button
-                  key={text}
-                  onClick={() => {
-                    setInput(text);
-                    textareaRef.current?.focus();
-                  }}
-                  className="block w-fit text-[11px] px-3 py-1.5 rounded-full border border-stone-200 text-stone-500 hover:text-stone-700 hover:border-stone-300 hover:bg-white transition-all duration-200"
-                >
-                  {text}
-                </button>
-              ))}
+            {/* Quick Suggestion Chips */}
+            <div className="pl-9 space-y-1.5 pt-1">
+              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+                Gợi ý chủ đề tra cứu:
+              </p>
+              <div className="space-y-1.5">
+                {QUICK_PROMPTS.map((item, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => handleSend(`${item.title}: ${item.desc}`)}
+                    className="w-full text-left p-2.5 rounded-xl bg-white hover:bg-red-50/60 active:bg-red-100/60 border border-slate-200/70 hover:border-red-200 text-slate-700 transition-all duration-150 flex items-center justify-between group shadow-2xs active:scale-[0.99]"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                      <span className="text-sm shrink-0 bg-slate-50 p-1.5 rounded-lg border border-slate-100">{item.icon}</span>
+                      <div className="min-w-0">
+                        <p className="text-[12px] font-semibold text-slate-800 group-hover:text-red-700 transition-colors truncate">
+                          {item.title}
+                        </p>
+                        <p className="text-[10.5px] text-slate-500 truncate">
+                          {item.desc}
+                        </p>
+                      </div>
+                    </div>
+                    <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-red-600 group-hover:translate-x-0.5 transition-all shrink-0" />
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         )}
 
-        {/* Chat messages */}
+        {/* Conversation History */}
         {messages.map((msg, i) => (
           <div
             key={i}
-            className={`flex ${msg.role === "user" ? "justify-end" : "gap-2.5"}`}
+            className={`flex ${msg.role === "user" ? "justify-end" : "justify-start gap-2.5 items-start"}`}
           >
-            {/* Bot avatar */}
+            {/* Assistant Avatar */}
             {msg.role === "assistant" && (
-              <div className="w-7 h-7 rounded-lg shrink-0 overflow-hidden mt-0.5 shadow-sm">
-                <img src="/saomai-logo.jpg" alt="SaoMai AI" className="w-full h-full object-cover" />
-              </div>
+              <img
+                src={avatarUrl}
+                alt="SaoMai"
+                className="w-7 h-7 object-contain shrink-0 mt-0.5"
+              />
             )}
 
-            {/* Message bubble */}
-            <div
-              className={`rounded-2xl px-3.5 py-2.5 text-[13px] max-w-[82%] break-words whitespace-pre-wrap leading-relaxed ${
-                msg.role === "user"
-                  ? "rounded-tr-lg text-white shadow-md"
-                  : "rounded-tl-lg bg-white text-stone-600 shadow-sm border border-stone-100/80"
-              }`}
-              style={
-                msg.role === "user"
-                  ? { background: `linear-gradient(135deg, ${themeColor}, ${themeColor}dd)` }
-                  : undefined
-              }
-            >
-              {msg.role === "assistant" ? (
-                <Markdown content={msg.content} />
-              ) : (
-                msg.content
-              )}
+            {/* Bubble */}
+            <div className="relative group max-w-[85%]">
+              <div
+                className={`px-3.5 py-2.5 text-[12.5px] break-words leading-relaxed ${
+                  msg.role === "user"
+                    ? "rounded-2xl rounded-tr-xs bg-gradient-to-r from-red-600 via-rose-600 to-red-700 text-white shadow-[0_4px_14px_rgba(220,38,38,0.25)]"
+                    : "rounded-2xl rounded-tl-xs bg-white text-slate-800 shadow-[0_4px_16px_rgba(0,0,0,0.04)] border border-slate-200/70"
+                }`}
+              >
+                {msg.role === "assistant" ? (
+                  <div className="prose prose-slate max-w-none text-[12.5px] leading-relaxed">
+                    <Markdown content={msg.content} />
+                  </div>
+                ) : (
+                  <span className="whitespace-pre-wrap">{msg.content}</span>
+                )}
 
-              {/* Typing dots */}
-              {msg.isStreaming && !msg.content && (
-                <div className="flex gap-1.5 py-1 px-0.5">
-                  <span
-                    className="w-2 h-2 rounded-full animate-bounce"
-                    style={{ backgroundColor: themeColor + "60", animationDelay: "0ms" }}
-                  />
-                  <span
-                    className="w-2 h-2 rounded-full animate-bounce"
-                    style={{ backgroundColor: themeColor + "60", animationDelay: "150ms" }}
-                  />
-                  <span
-                    className="w-2 h-2 rounded-full animate-bounce"
-                    style={{ backgroundColor: themeColor + "60", animationDelay: "300ms" }}
-                  />
-                </div>
-              )}
+                {/* Streaming Wave */}
+                {msg.isStreaming && !msg.content && (
+                  <div className="flex items-center gap-1.5 py-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-bounce" style={{ animationDelay: "0ms" }} />
+                    <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-bounce" style={{ animationDelay: "150ms" }} />
+                    <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-bounce" style={{ animationDelay: "300ms" }} />
+                  </div>
+                )}
 
-              {/* Streaming cursor */}
-              {msg.isStreaming && msg.content && (
-                <span
-                  className="inline-block w-0.5 h-3.5 animate-pulse ml-0.5 align-text-bottom rounded-full"
-                  style={{ backgroundColor: themeColor, opacity: 0.5 }}
-                />
+                {/* Blinking cursor */}
+                {msg.isStreaming && msg.content && (
+                  <span className="inline-block w-1.5 h-3.5 ml-1 bg-red-600 animate-pulse align-middle rounded-xs" />
+                )}
+              </div>
+
+              {/* Copy button on hover */}
+              {msg.role === "assistant" && !msg.isStreaming && msg.content && (
+                <button
+                  onClick={() => handleCopy(msg.content, i)}
+                  title="Sao chép câu trả lời"
+                  className="absolute -bottom-2 right-1 opacity-0 group-hover:opacity-100 transition-opacity bg-white border border-slate-200 shadow-md rounded-md p-1 text-slate-400 hover:text-slate-700 active:scale-90"
+                >
+                  {copiedIndex === i ? (
+                    <Check className="w-3 h-3 text-emerald-600" />
+                  ) : (
+                    <Copy className="w-3 h-3" />
+                  )}
+                </button>
               )}
             </div>
           </div>
@@ -337,36 +394,42 @@ export default function WidgetChatPage({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* ────── Input ────── */}
-      <div className="shrink-0 bg-white border-t border-stone-100 p-2.5">
-        <div className="flex items-end gap-2 bg-stone-50/80 rounded-xl border border-stone-200/60 p-1 focus-within:border-stone-300 focus-within:bg-white transition-all duration-200">
+      {/* ────── Seamless Clean Input Bar (Đồng bộ, Không viền thô) ────── */}
+      <div className="shrink-0 bg-white/80 backdrop-blur-xl border-t border-slate-100 p-2.5 z-10 relative">
+        <div className="flex items-center gap-2 bg-slate-100/90 rounded-full px-3.5 py-1.5 transition-all">
           <textarea
             ref={textareaRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Nhập câu hỏi..."
-            className="flex-1 resize-none bg-transparent px-2.5 py-2 text-[13px] text-stone-700 placeholder:text-stone-400 outline-none min-h-[34px] max-h-[120px]"
+            placeholder="Hỏi đáp về chủ trương, chính sách, tư tưởng..."
+            className="flex-1 resize-none bg-transparent py-1 text-[12.5px] text-slate-800 placeholder:text-slate-400 outline-none border-none ring-0 shadow-none min-h-[28px] max-h-[85px] leading-relaxed"
             rows={1}
             disabled={isLoading}
           />
           <button
-            onClick={handleSend}
+            onClick={() => handleSend()}
             disabled={!input.trim() || isLoading}
-            className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 text-white disabled:opacity-30 transition-all duration-200 hover:shadow-md active:scale-95"
-            style={{ background: !input.trim() || isLoading ? "#d1d5db" : `linear-gradient(135deg, ${themeColor}, ${themeColor}dd)` }}
+            className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 transition-all duration-200 ${
+              !input.trim() || isLoading
+                ? "bg-slate-200/80 text-slate-400 cursor-not-allowed"
+                : "bg-red-600 hover:bg-red-700 text-white shadow-xs active:scale-95 cursor-pointer"
+            }`}
           >
             {isLoading ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              <Loader2 className="w-3 h-3 animate-spin" />
             ) : (
-              <Send className="w-3.5 h-3.5" />
+              <Send className="w-3 h-3" />
             )}
           </button>
         </div>
-        {/* Powered by */}
-        <p className="text-center text-[9px] text-stone-300 mt-1.5 tracking-wide">
-          Powered by SaoMai AI
-        </p>
+
+        {/* Footer Brand */}
+        <div className="flex items-center justify-center gap-1.5 mt-1.5 text-[9.5px] text-slate-400 font-medium tracking-wide">
+          <span>SaoMai AI</span>
+          <span>•</span>
+          <span>Hệ thống Trí tuệ Nhân tạo Việt Nam</span>
+        </div>
       </div>
     </div>
   );

@@ -20,15 +20,27 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: "Thiếu tin nhắn" }, { status: 400 });
     }
 
-    // Get bot config
-    const bot = await getBot(botId);
+    // Get bot config (or fallback to default SaoMai AI)
+    let bot = await getBot(botId);
     if (!bot) {
-      return Response.json({ error: "Bot không tồn tại" }, { status: 404 });
+      // Default fixed bot configuration
+      bot = {
+        id: "default",
+        name: "SaoMai AI",
+        greeting: "Xin chào! Tôi là Trợ lý AI SaoMai. Tôi có thể giúp gì cho bạn?",
+        system_prompt: "",
+        theme_color: "#DC2626",
+        position: "bottom-right",
+        avatar_url: "/widget/mascot-ai.png",
+        allowed_domains: ["*"],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
     }
 
-    // Domain validation
+    // Domain validation (if restricted)
     const origin = request.headers.get("origin") || "";
-    if (origin && !isDomainAllowed(bot, origin)) {
+    if (origin && bot.allowed_domains && !bot.allowed_domains.includes("*") && !isDomainAllowed(bot, origin)) {
       return Response.json(
         { error: "Domain không được phép sử dụng bot này" },
         { status: 403 }

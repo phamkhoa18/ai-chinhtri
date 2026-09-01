@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { getBot, isDomainAllowed } from "@/lib/bot-store";
+import { getBot, isDomainAllowed, BotConfig } from "@/lib/bot-store";
 import { chatCompletionStream } from "@/lib/fpt-ai";
 import { search as vectorSearch, SearchResult } from "@/lib/vector-store";
 import { searchWeb } from "@/lib/web-search";
@@ -21,26 +21,22 @@ export async function POST(request: NextRequest) {
     }
 
     // Get bot config (or fallback to default SaoMai AI)
-    let bot = await getBot(botId);
-    if (!bot) {
-      // Default fixed bot configuration
-      bot = {
-        id: "default",
-        name: "SaoMai AI",
-        greeting: "Xin chào! Tôi là Trợ lý AI SaoMai. Tôi có thể giúp gì cho bạn?",
-        system_prompt: "",
-        theme_color: "#DC2626",
-        position: "bottom-right",
-        avatar_url: "/widget/mascot-ai.png",
-        allowed_domains: ["*"],
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-    }
+    let bot: BotConfig = (await getBot(botId)) || {
+      id: "default",
+      name: "SaoMai AI",
+      greeting: "Xin chào! Tôi là Trợ lý AI SaoMai. Tôi có thể giúp gì cho bạn?",
+      system_prompt: "",
+      theme_color: "#DC2626",
+      position: "bottom-right",
+      avatar_url: "/widget/mascot-clean-bot.svg",
+      allowed_domains: '["*"]',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
 
     // Domain validation (if restricted)
     const origin = request.headers.get("origin") || "";
-    if (origin && bot.allowed_domains && !bot.allowed_domains.includes("*") && !isDomainAllowed(bot, origin)) {
+    if (origin && !isDomainAllowed(bot, origin)) {
       return Response.json(
         { error: "Domain không được phép sử dụng bot này" },
         { status: 403 }
